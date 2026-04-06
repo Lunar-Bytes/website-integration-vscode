@@ -35,8 +35,9 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 const vscode = __importStar(require("vscode"));
+const child_process_1 = require("child_process");
+const path = __importStar(require("path"));
 function activate(context) {
-    // This ID MUST match your package.json: "website-integration.sidebarView"
     const provider = new WebsiteViewProvider(context.extensionUri, context);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider('website-integration.sidebarView', provider, {
         webviewOptions: { retainContextWhenHidden: true }
@@ -56,19 +57,53 @@ class WebsiteViewProvider {
         this.updateHtml();
         // Handle messages from the Webview UI
         webviewView.webview.onDidReceiveMessage(data => {
-            if (data.type === 'saveSettings') {
-                this._context.globalState.update('webSettings', data.value).then(() => {
-                    this.updateHtml(); // Push new settings to UI immediately
-                    vscode.window.showInformationMessage('Liquid Glass: Settings Saved');
-                });
+            switch (data.type) {
+                case 'saveSettings':
+                    this._context.globalState.update('webSettings', data.value).then(() => {
+                        this.updateHtml();
+                        vscode.window.showInformationMessage('Liquid Glass: Settings Saved');
+                    });
+                    break;
+                case 'startProxy':
+                    this.handleStartProxy();
+                    break;
+                case 'stopProxy':
+                    this.handleStopProxy();
+                    break;
             }
         });
+    }
+    handleStartProxy() {
+        if (this._proxyProcess) {
+            vscode.window.showWarningMessage("Proxy server is already running.");
+            return;
+        }
+        // Logic to find your server.js
+        // It assumes server.js is in your root folder or a 'server' subfolder
+        const serverPath = path.join(this._context.extensionPath, 'server.js');
+        this._proxyProcess = (0, child_process_1.exec)(`node "${serverPath}"`, (error) => {
+            if (error && !error.killed) {
+                vscode.window.showErrorMessage(`Proxy Error: ${error.message}`);
+                this._proxyProcess = undefined;
+                this.updateHtml();
+            }
+        });
+        vscode.window.showInformationMessage("🚀 Liquid Glass Proxy Started at http://localhost:3000");
+        this.updateHtml();
+    }
+    handleStopProxy() {
+        if (this._proxyProcess) {
+            this._proxyProcess.kill();
+            this._proxyProcess = undefined;
+            vscode.window.showInformationMessage("🛑 Proxy Server Stopped.");
+            this.updateHtml();
+        }
     }
     updateHtml() {
         if (!this._view)
             return;
         const settings = this._context.globalState.get('webSettings', {
-            proxy: '',
+            proxy: 'http://localhost:3000',
             darkMode: true,
             liquidGlass: true,
             btnColor: '#28a745',
@@ -77,6 +112,10 @@ class WebsiteViewProvider {
         this._view.webview.html = this._getHtmlForWebview(settings);
     }
     _getHtmlForWebview(settings) {
+        const proxyStatus = this._proxyProcess ? "🟢 Running" : "🔴 Stopped";
+        const proxyBtn = this._proxyProcess
+            ? `<button onclick="stopProxy()" style="background:#cc3300; width:100%">Stop Proxy Server</button>`
+            : `<button onclick="startProxy()" style="background:#444; width:100%">Start Proxy Server</button>`;
         return `
             <!DOCTYPE html>
             <html lang="en">
@@ -97,7 +136,6 @@ class WebsiteViewProvider {
                         height: 100vh; overflow: hidden; 
                     }
                     
-                    /* --- Liquid Glass Background --- */
                     .blob-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; display: ${settings.liquidGlass ? 'block' : 'none'}; }
                     .blob { 
                         position: absolute; width: 500px; height: 500px; 
@@ -110,7 +148,6 @@ class WebsiteViewProvider {
                         to { transform: translate(70%, 70%) rotate(180deg); } 
                     }
 
-                    /* --- UI Components --- */
                     .glass { 
                         background: var(--glass); 
                         backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); 
@@ -126,20 +163,19 @@ class WebsiteViewProvider {
                         color: white; padding: 8px; border-radius: 6px; outline: none; 
                     }
                     button { 
-                        background: var(--accent); color: white; border: none; 
+                        color: white; border: none; 
                         padding: 8px 16px; border-radius: 6px; 
                         cursor: pointer; font-weight: bold; transition: opacity 0.2s;
+                        background: var(--accent);
                     }
                     button:hover { opacity: 0.9; }
                     
-                    /* --- Settings Overlay --- */
                     #settings-menu { 
                         display: none; position: absolute; top: 65px; left: 10px; right: 10px; 
                         padding: 20px; z-index: 100; box-shadow: 0 15px 35px rgba(0,0,0,0.4); 
                     }
                     .setting-item { margin-bottom: 12px; }
                     
-                    /* --- Browser View --- */
                     iframe { 
                         width: calc(100% - 20px); height: calc(100vh - 130px); 
                         margin: 0 10px; border: none; border-radius: 10px; 
@@ -160,14 +196,19 @@ class WebsiteViewProvider {
                 <div id="settings-menu" class="glass">
                     <h3 style="margin-top:0">Settings</h3>
                     <div class="setting-item">
+                        <small>Proxy Status: <b>${proxyStatus}</b></small><br>
+                        ${proxyBtn}
+                    </div>
+                    <hr style="opacity:0.2">
+                    <div class="setting-item">
                         <label><input type="checkbox" id="check-dark" ${settings.darkMode ? 'checked' : ''}> Dark Mode</label>
                     </div>
                     <div class="setting-item">
                         <label><input type="checkbox" id="check-glass" ${settings.liquidGlass ? 'checked' : ''}> Liquid Glass Background</label>
                     </div>
                     <div class="setting-item">
-                        <label>Proxy Server URL:</label><br>
-                        <input type="text" id="input-proxy" value="${settings.proxy}" placeholder="http://localhost:3000" style="width:95%">
+                        <label>Proxy URL:</label><br>
+                        <input type="text" id="input-proxy" value="${settings.proxy}" style="width:95%">
                     </div>
                     <div class="setting-item">
                         <label>Default Dev Port:</label><br>
@@ -194,6 +235,9 @@ class WebsiteViewProvider {
                         menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
                     }
 
+                    function startProxy() { vscode.postMessage({ type: 'startProxy' }); }
+                    function stopProxy() { vscode.postMessage({ type: 'stopProxy' }); }
+
                     function saveAllSettings() {
                         vscode.postMessage({
                             type: 'saveSettings',
@@ -210,10 +254,8 @@ class WebsiteViewProvider {
                     function navigate() {
                         let input = document.getElementById('url-bar').value.trim();
                         if(!input) return;
-
                         let targetUrl = input;
                         
-                        // Smart Port Handling: If input is just a number (like 5500)
                         if (!isNaN(input)) {
                             targetUrl = 'http://localhost:' + input;
                         } else if (input.startsWith(':')) {
@@ -227,37 +269,19 @@ class WebsiteViewProvider {
 
                         const isLocal = targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1');
 
-                        // Detection Logic for Security Blocks
                         setTimeout(() => {
                             try {
-                                // If this access fails, the site is blocking us or cross-origin
                                 if(frame.contentWindow.location.href === "about:blank") throw "blocked";
                             } catch(e) {
                                 if (isLocal) {
-                                    status.innerText = "Local Server - Direct Connection";
+                                    status.innerText = "Local Server Detected";
                                 } else if (proxyUrl) {
-                                    status.innerText = "Rendering thru proxy server";
-                                    // Route through your Node.js proxy
+                                    status.innerText = "Proxying: " + targetUrl;
                                     frame.src = \`\${proxyUrl}/proxy?url=\${encodeURIComponent(targetUrl)}\`;
-                                } else {
-                                    status.innerText = "No proxy enabled. Unable to render site";
-                                    frame.srcdoc = \`
-                                        <body style="background:#111; color:white; font-family:sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; text-align:center; margin:0;">
-                                            <div>
-                                                <h2 style="color:var(--accent)">Site Blocked</h2>
-                                                <p>This site refuses to be in an iframe.<br>Enable your proxy server in settings.</p>
-                                            </div>
-                                        </body>\`;
                                 }
                             }
                         }, 2000);
                     }
-
-                    frame.onload = () => {
-                        if(status.innerText === "Connecting...") {
-                            status.innerText = "Direct connection successful";
-                        }
-                    };
                 </script>
             </body>
             </html>

@@ -5,3 +5,4 @@ tsconfig.json
 *.vsix
 proxy.cmd
 extension.cmd
+.node-modules/**
