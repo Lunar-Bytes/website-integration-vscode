@@ -4,3 +4,4 @@ tsconfig.json
 .gitignore
 *.vsix
 proxy.cmd
+extension.cmd
