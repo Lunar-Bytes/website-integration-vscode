@@ -31,7 +31,6 @@ class WebsiteViewProvider implements vscode.WebviewViewProvider {
 
         this.updateHtml();
 
-        // Handle messages from the Webview UI
         webviewView.webview.onDidReceiveMessage(data => {
             switch (data.type) {
                 case 'saveSettings':
@@ -53,24 +52,15 @@ class WebsiteViewProvider implements vscode.WebviewViewProvider {
     }
 
     private handleStartProxy() {
-        if (this._proxyProcess) {
-            vscode.window.showWarningMessage("Proxy server is already running.");
-            return;
-        }
-
-        // Logic to find your server.js
-        // It assumes server.js is in your root folder or a 'server' subfolder
+        if (this._proxyProcess) return;
         const serverPath = path.join(this._context.extensionPath, 'server.js');
-        
         this._proxyProcess = exec(`node "${serverPath}"`, (error) => {
             if (error && !error.killed) {
-                vscode.window.showErrorMessage(`Proxy Error: ${error.message}`);
                 this._proxyProcess = undefined;
                 this.updateHtml();
             }
         });
-
-        vscode.window.showInformationMessage("🚀 Liquid Glass Proxy Started at http://localhost:3000");
+        vscode.window.showInformationMessage("🚀 Liquid Glass Proxy Started");
         this.updateHtml();
     }
 
@@ -78,14 +68,12 @@ class WebsiteViewProvider implements vscode.WebviewViewProvider {
         if (this._proxyProcess) {
             this._proxyProcess.kill();
             this._proxyProcess = undefined;
-            vscode.window.showInformationMessage("🛑 Proxy Server Stopped.");
             this.updateHtml();
         }
     }
 
     private updateHtml() {
         if (!this._view) return;
-        
         const settings = this._context.globalState.get('webSettings', {
             proxy: 'http://localhost:3000',
             darkMode: true,
@@ -93,7 +81,6 @@ class WebsiteViewProvider implements vscode.WebviewViewProvider {
             btnColor: '#28a745',
             devPort: '5500'
         });
-
         this._view.webview.html = this._getHtmlForWebview(settings);
     }
 
@@ -108,7 +95,6 @@ class WebsiteViewProvider implements vscode.WebviewViewProvider {
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src *; img-src *; style-src 'unsafe-inline' *; script-src 'unsafe-inline' *; connect-src *;">
                 <style>
                     :root {
                         --accent: ${settings.btnColor};
@@ -116,115 +102,121 @@ class WebsiteViewProvider implements vscode.WebviewViewProvider {
                         --glass: ${settings.darkMode ? 'rgba(30, 30, 30, 0.7)' : 'rgba(255, 255, 255, 0.6)'};
                         --text: ${settings.darkMode ? '#eee' : '#111'};
                     }
-                    body { 
-                        margin: 0; padding: 0; 
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
-                        background: var(--bg); color: var(--text); 
-                        height: 100vh; overflow: hidden; 
-                    }
+                    body { margin: 0; padding: 0; font-family: sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
                     
                     .blob-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; display: ${settings.liquidGlass ? 'block' : 'none'}; }
-                    .blob { 
-                        position: absolute; width: 500px; height: 500px; 
-                        background: radial-gradient(circle, var(--accent) 0%, transparent 75%); 
-                        filter: blur(80px); opacity: 0.35; 
-                        animation: drift 25s infinite alternate ease-in-out; 
-                    }
-                    @keyframes drift { 
-                        from { transform: translate(-30%, -30%) rotate(0deg); } 
-                        to { transform: translate(70%, 70%) rotate(180deg); } 
-                    }
+                    .blob { position: absolute; width: 500px; height: 500px; background: radial-gradient(circle, var(--accent) 0%, transparent 75%); filter: blur(80px); opacity: 0.35; animation: drift 25s infinite alternate; }
+                    @keyframes drift { from { transform: translate(-30%, -30%); } to { transform: translate(70%, 70%); } }
 
-                    .glass { 
-                        background: var(--glass); 
-                        backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); 
-                        border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; 
-                    }
-                    .nav { display: flex; align-items: center; gap: 10px; padding: 10px; margin: 10px; }
-                    .cog { cursor: pointer; font-size: 20px; transition: transform 0.4s ease; user-select: none; }
-                    .cog:hover { transform: rotate(90deg); }
+                    .tab-strip { display: flex; background: rgba(0,0,0,0.2); padding: 5px 10px 0; gap: 5px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+                    .tab { padding: 5px 12px; font-size: 11px; cursor: pointer; background: rgba(255,255,255,0.05); border-radius: 5px 5px 0 0; border: 1px solid rgba(255,255,255,0.1); border-bottom: none; opacity: 0.7; }
+                    .tab.active { background: var(--glass); opacity: 1; font-weight: bold; border-top: 2px solid var(--accent); }
+                    .add-tab { padding: 5px 10px; cursor: pointer; color: var(--accent); font-weight: bold; }
 
-                    input[type="text"], input[type="number"] { 
-                        flex-grow: 1; background: rgba(0,0,0,0.25); 
-                        border: 1px solid rgba(255,255,255,0.2); 
-                        color: white; padding: 8px; border-radius: 6px; outline: none; 
-                    }
-                    button { 
-                        color: white; border: none; 
-                        padding: 8px 16px; border-radius: 6px; 
-                        cursor: pointer; font-weight: bold; transition: opacity 0.2s;
-                        background: var(--accent);
-                    }
-                    button:hover { opacity: 0.9; }
+                    .glass { background: var(--glass); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; }
+                    .nav { display: flex; align-items: center; gap: 10px; padding: 10px; margin: 10px; flex-shrink: 0; }
+                    input[type="text"] { flex-grow: 1; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 8px; border-radius: 6px; }
                     
-                    #settings-menu { 
-                        display: none; position: absolute; top: 65px; left: 10px; right: 10px; 
-                        padding: 20px; z-index: 100; box-shadow: 0 15px 35px rgba(0,0,0,0.4); 
-                    }
-                    .setting-item { margin-bottom: 12px; }
+                    #settings-menu { display: none; position: absolute; top: 100px; left: 10px; right: 10px; padding: 20px; z-index: 100; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
                     
-                    iframe { 
-                        width: calc(100% - 20px); height: calc(100vh - 130px); 
-                        margin: 0 10px; border: none; border-radius: 10px; 
-                        background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-                    }
-                    .footer { position: fixed; bottom: 8px; left: 15px; font-size: 11px; font-weight: 600; opacity: 0.9; }
+                    .frame-container { flex-grow: 1; position: relative; margin: 0 10px 10px; }
+                    iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; border-radius: 10px; background: white; display: none; }
+                    iframe.active { display: block; }
+                    
+                    button { color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; background: var(--accent); }
                 </style>
             </head>
             <body>
                 <div class="blob-bg"><div class="blob"></div></div>
                 
+                <div class="tab-strip" id="tab-strip"></div>
+
                 <div class="nav glass">
-                    <div class="cog" onclick="toggleSettings()">⚙️</div>
-                    <input type="text" id="url-bar" placeholder="Enter URL or port (e.g. 5500)">
+                    <div onclick="toggleSettings()" style="cursor:pointer">⚙️</div>
+                    <input type="text" id="url-bar" placeholder="Enter URL...">
                     <button onclick="navigate()">Go</button>
                 </div>
 
                 <div id="settings-menu" class="glass">
-                    <h3 style="margin-top:0">Settings</h3>
-                    <div class="setting-item">
-                        <small>Proxy Status: <b>${proxyStatus}</b></small><br>
-                        ${proxyBtn}
+                    <small>Proxy Status: <b>${proxyStatus}</b></small>${proxyBtn}
+                    <div style="margin-top:10px">
+                        <label><input type="checkbox" id="check-dark" ${settings.darkMode ? 'checked' : ''}> Dark Mode</label><br>
+                        <label><input type="checkbox" id="check-glass" ${settings.liquidGlass ? 'checked' : ''}> Liquid Glass</label><br>
+                        Proxy URL: <input type="text" id="input-proxy" value="${settings.proxy}" style="width:90%"><br>
+                        Dev Port: <input type="number" id="input-dev-port" value="${settings.devPort}" style="width:90%"><br>
+                        Accent: <input type="color" id="input-color" value="${settings.btnColor}"><br>
+                        <button onclick="saveAllSettings()" style="width:100%; margin-top:10px;">Apply</button>
                     </div>
-                    <hr style="opacity:0.2">
-                    <div class="setting-item">
-                        <label><input type="checkbox" id="check-dark" ${settings.darkMode ? 'checked' : ''}> Dark Mode</label>
-                    </div>
-                    <div class="setting-item">
-                        <label><input type="checkbox" id="check-glass" ${settings.liquidGlass ? 'checked' : ''}> Liquid Glass Background</label>
-                    </div>
-                    <div class="setting-item">
-                        <label>Proxy URL:</label><br>
-                        <input type="text" id="input-proxy" value="${settings.proxy}" style="width:95%">
-                    </div>
-                    <div class="setting-item">
-                        <label>Default Dev Port:</label><br>
-                        <input type="number" id="input-dev-port" value="${settings.devPort}" style="width:95%">
-                    </div>
-                    <div class="setting-item">
-                        <label>Accent Color:</label><br>
-                        <input type="color" id="input-color" value="${settings.btnColor}">
-                    </div>
-                    <button onclick="saveAllSettings()" style="width:100%; margin-top:10px;">Apply & Save</button>
                 </div>
 
-                <iframe id="browser-frame" src="about:blank"></iframe>
-                <div class="footer" id="status-text">Ready</div>
+                <div class="frame-container" id="frame-container"></div>
 
                 <script>
                     const vscode = acquireVsCodeApi();
-                    const frame = document.getElementById('browser-frame');
-                    const status = document.getElementById('status-text');
-                    const proxyUrl = "${settings.proxy}";
+                    let activeTabIndex = 0;
+                    let tabs = [{ id: 0, title: 'Home', url: 'about:blank' }];
+
+                    function renderTabs() {
+                        const strip = document.getElementById('tab-strip');
+                        strip.innerHTML = tabs.map((t, i) => \`
+                            <div class="tab \${i === activeTabIndex ? 'active' : ''}" onclick="switchTab(\${i})">
+                                \${t.title}
+                            </div>
+                        \`).join('') + '<div class="add-tab" onclick="addTab()">+</div>';
+                    }
+
+                    function switchTab(index) {
+                        activeTabIndex = index;
+                        document.querySelectorAll('iframe').forEach((f, i) => {
+                            f.className = (i === index) ? 'active' : '';
+                        });
+                        document.getElementById('url-bar').value = tabs[index].url === 'about:blank' ? '' : tabs[index].url;
+                        renderTabs();
+                    }
+
+                    function addTab() {
+                        const newId = tabs.length;
+                        tabs.push({ id: newId, title: 'New Tab', url: 'about:blank' });
+                        const f = document.createElement('iframe');
+                        f.id = 'frame-' + newId;
+                        f.src = 'about:blank';
+                        document.getElementById('frame-container').appendChild(f);
+                        switchTab(newId);
+                    }
+
+                    function navigate() {
+                        const input = document.getElementById('url-bar').value.trim();
+                        if(!input) return;
+                        
+                        let targetUrl = input;
+                        if (!isNaN(input)) targetUrl = 'http://localhost:' + input;
+                        else if (!input.startsWith('http')) targetUrl = 'https://' + input;
+
+                        tabs[activeTabIndex].url = targetUrl;
+                        tabs[activeTabIndex].title = targetUrl.split('//')[1]?.split('/')[0] || 'Page';
+                        
+                        const currentFrame = document.querySelector('iframe.active');
+                        currentFrame.src = targetUrl;
+                        
+                        // Proxy detection logic
+                        setTimeout(() => {
+                            try { if(currentFrame.contentWindow.location.href === "about:blank") throw "err"; } 
+                            catch(e) {
+                                if (!targetUrl.includes('localhost')) {
+                                    currentFrame.src = "${settings.proxy}/proxy?url=" + encodeURIComponent(targetUrl);
+                                }
+                            }
+                        }, 1000);
+                        renderTabs();
+                    }
 
                     function toggleSettings() {
-                        const menu = document.getElementById('settings-menu');
-                        menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+                        const m = document.getElementById('settings-menu');
+                        m.style.display = (m.style.display === 'block') ? 'none' : 'block';
                     }
 
                     function startProxy() { vscode.postMessage({ type: 'startProxy' }); }
                     function stopProxy() { vscode.postMessage({ type: 'stopProxy' }); }
-
                     function saveAllSettings() {
                         vscode.postMessage({
                             type: 'saveSettings',
@@ -238,37 +230,12 @@ class WebsiteViewProvider implements vscode.WebviewViewProvider {
                         });
                     }
 
-                    function navigate() {
-                        let input = document.getElementById('url-bar').value.trim();
-                        if(!input) return;
-                        let targetUrl = input;
-                        
-                        if (!isNaN(input)) {
-                            targetUrl = 'http://localhost:' + input;
-                        } else if (input.startsWith(':')) {
-                            targetUrl = 'http://localhost' + input;
-                        } else if (!input.startsWith('http')) {
-                            targetUrl = 'https://' + input;
-                        }
-                        
-                        status.innerText = "Connecting...";
-                        frame.src = targetUrl;
-
-                        const isLocal = targetUrl.includes('localhost') || targetUrl.includes('127.0.0.1');
-
-                        setTimeout(() => {
-                            try {
-                                if(frame.contentWindow.location.href === "about:blank") throw "blocked";
-                            } catch(e) {
-                                if (isLocal) {
-                                    status.innerText = "Local Server Detected";
-                                } else if (proxyUrl) {
-                                    status.innerText = "Proxying: " + targetUrl;
-                                    frame.src = \`\${proxyUrl}/proxy?url=\${encodeURIComponent(targetUrl)}\`;
-                                }
-                            }
-                        }, 2000);
-                    }
+                    // Initialize first tab frame
+                    const firstFrame = document.createElement('iframe');
+                    firstFrame.className = 'active';
+                    firstFrame.src = 'about:blank';
+                    document.getElementById('frame-container').appendChild(firstFrame);
+                    renderTabs();
                 </script>
             </body>
             </html>
