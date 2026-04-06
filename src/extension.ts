@@ -1,202 +1,164 @@
 import * as vscode from 'vscode';
-import axios from 'axios';
 
 export function activate(context: vscode.ExtensionContext) {
-    const provider = new WebsiteViewProvider(context.extensionUri);
+    // This ID must match package.json exactly: website-integration.sidebarView
+    const provider = new WebsiteViewProvider(context.extensionUri, context);
+    
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider('website-integration.sidebarView', provider)
+        vscode.window.registerWebviewViewProvider('website-integration.sidebarView', provider, {
+            webviewOptions: { retainContextWhenHidden: true }
+        })
     );
 }
 
 class WebsiteViewProvider implements vscode.WebviewViewProvider {
-    constructor(private readonly _extensionUri: vscode.Uri) {}
+    public _view?: vscode.WebviewView;
+
+    constructor(
+        private readonly _extensionUri: vscode.Uri,
+        private readonly _context: vscode.ExtensionContext
+    ) {}
 
     public resolveWebviewView(webviewView: vscode.WebviewView) {
+        this._view = webviewView;
+
         webviewView.webview.options = { 
-            enableScripts: true, 
-            localResourceRoots: [this._extensionUri] 
+            enableScripts: true,
+            localResourceRoots: [this._extensionUri]
         };
 
-        webviewView.webview.html = this._getHtmlForWebview();
+        this.updateHtml();
 
-        webviewView.webview.onDidReceiveMessage(async (data) => {
-            if (data.type === 'requestProxy') {
-                try {
-                    const response = await axios.get(data.url, {
-                        headers: { 'User-Agent': 'Mozilla/5.0' },
-                        timeout: 5000 
-                    });
-
-                    let html = response.data;
-                    const urlObj = new URL(data.url);
-                    const baseTag = `<base href="${urlObj.protocol}//${urlObj.host}${urlObj.pathname}">`;
-                    
-                    if (html.includes('<head>')) {
-                        html = html.replace('<head>', `<head>${baseTag}`);
-                    }
-                    
-                    webviewView.webview.postMessage({ type: 'renderProxy', html: html });
-                } catch (err) {
-                    // Send specific "Not Found" message back to UI
-                    webviewView.webview.postMessage({ type: 'proxyError', url: data.url });
-                }
+        webviewView.webview.onDidReceiveMessage(data => {
+            if (data.type === 'saveSettings') {
+                this._context.globalState.update('webSettings', data.value).then(() => {
+                    this.updateHtml();
+                    vscode.window.showInformationMessage('Liquid Glass Settings Applied!');
+                });
             }
         });
     }
 
-    private _getHtmlForWebview() {
-        return `<!DOCTYPE html>
-            <html lang="en">
+    private updateHtml() {
+        if (!this._view) return;
+        
+        const settings = this._context.globalState.get('webSettings', {
+            proxy: '',
+            darkMode: true,
+            liquidGlass: true,
+            btnColor: '#28a745'
+        });
+
+        this._view.webview.html = this._getHtmlForWebview(settings);
+    }
+
+    private _getHtmlForWebview(settings: any) {
+        return `
+            <!DOCTYPE html>
+            <html>
             <head>
                 <meta charset="UTF-8">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src *; img-src *; style-src 'unsafe-inline' *; script-src 'unsafe-inline' *; connect-src *;">
                 <style>
                     :root {
-                        --glass: rgba(255, 255, 255, 0.1);
-                        --border: rgba(255, 255, 255, 0.2);
-                        --bg-dark: #0f0f10;
+                        --accent: ${settings.btnColor};
+                        --bg: ${settings.darkMode ? '#0f0f0f' : '#f5f5f5'};
+                        --glass: ${settings.darkMode ? 'rgba(30, 30, 30, 0.7)' : 'rgba(255, 255, 255, 0.6)'};
+                        --text: ${settings.darkMode ? '#eee' : '#111'};
                     }
+                    body { margin: 0; padding: 0; font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+                    
+                    .blob-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; display: ${settings.liquidGlass ? 'block' : 'none'}; }
+                    .blob { position: absolute; width: 400px; height: 400px; background: radial-gradient(circle, var(--accent) 0%, transparent 70%); filter: blur(60px); opacity: 0.3; animation: drift 20s infinite alternate; }
+                    @keyframes drift { from { transform: translate(-20%, -20%); } to { transform: translate(60%, 60%); } }
 
-                    body, html { 
-                        margin: 0; padding: 0; height: 100%; width: 100%; 
-                        font-family: 'Segoe UI', sans-serif;
-                        background: var(--bg-dark);
-                        overflow: hidden;
-                        display: flex; flex-direction: column;
-                    }
+                    .glass { background: var(--glass); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; }
+                    .nav { display: flex; align-items: center; gap: 8px; padding: 8px; margin: 8px; }
+                    .cog { cursor: pointer; font-size: 18px; transition: 0.3s; }
+                    .cog:hover { transform: rotate(90deg); }
 
-                    /* Animated Background Gradients */
-                    .bg-blobs {
-                        position: absolute; width: 100%; height: 100%;
-                        z-index: -1; overflow: hidden; filter: blur(40px);
-                    }
-                    .blob {
-                        position: absolute; width: 150px; height: 150px;
-                        border-radius: 50%; opacity: 0.4;
-                    }
-                    .blob-1 { background: #0e639c; top: -20px; left: -20px; }
-                    .blob-2 { background: #612570; bottom: 20px; right: -20px; }
-
-                    /* Glassmorphism Container */
-                    .app-container {
-                        display: flex; flex-direction: column;
-                        height: 100%; padding: 12px; box-sizing: border-box;
-                        gap: 12px;
-                    }
-
-                    .nav-card {
-                        background: var(--glass);
-                        backdrop-filter: blur(10px);
-                        border: 1px solid var(--border);
-                        border-radius: 12px;
-                        padding: 8px;
-                        display: flex; gap: 8px;
-                        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-                    }
-
-                    input {
-                        flex: 1; background: rgba(0,0,0,0.2);
-                        border: 1px solid var(--border);
-                        border-radius: 8px; color: white;
-                        padding: 6px 12px; outline: none;
-                    }
-
-                    button {
-                        background: #007acc; color: white;
-                        border: none; border-radius: 8px;
-                        padding: 0 16px; cursor: pointer;
-                        font-weight: 600; transition: 0.2s;
-                    }
-                    button:hover { background: #005a9e; transform: translateY(-1px); }
-
-                    .browser-card {
-                        flex: 1; background: var(--glass);
-                        backdrop-filter: blur(15px);
-                        border: 1px solid var(--border);
-                        border-radius: 16px; overflow: hidden;
-                        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-                        position: relative;
-                    }
-
-                    iframe {
-                        width: 100%; height: 100%; border: none;
-                        background: white; border-radius: 0;
-                    }
-
-                    /* Custom Error Overlay */
-                    #error-overlay {
-                        position: absolute; top:0; left:0; width:100%; height:100%;
-                        background: var(--bg-dark); color: white;
-                        display: none; flex-direction: column;
-                        align-items: center; justify-content: center;
-                        text-align: center; padding: 20px; box-sizing: border-box;
-                    }
-                    #error-overlay h2 { color: #ff5555; margin-bottom: 8px; }
+                    input[type="text"] { flex-grow: 1; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 6px; border-radius: 4px; outline: none; }
+                    button { background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+                    
+                    #settings { display: none; position: absolute; top: 55px; left: 8px; right: 8px; padding: 15px; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+                    iframe { width: calc(100% - 16px); height: calc(100vh - 110px); margin: 0 8px; border: none; border-radius: 8px; background: white; }
+                    .footer { position: fixed; bottom: 5px; left: 12px; font-size: 10px; opacity: 0.8; font-weight: bold; }
                 </style>
             </head>
             <body>
-                <div class="bg-blobs">
-                    <div class="blob blob-1"></div>
-                    <div class="blob blob-2"></div>
+                <div class="blob-bg"><div class="blob"></div></div>
+                <div class="nav glass">
+                    <div class="cog" onclick="toggleSettings()">⚙️</div>
+                    <input type="text" id="url" placeholder="Enter URL...">
+                    <button onclick="go()">Go</button>
                 </div>
 
-                <div class="app-container">
-                    <div class="nav-card">
-                        <input type="text" id="urlInput" placeholder="Enter URL (e.g. google.com)" />
-                        <button id="goBtn">Go</button>
-                    </div>
-
-                    <div class="browser-card">
-                        <iframe id="browserFrame"></iframe>
-                        <div id="error-overlay">
-                            <h2>⚠️ Site Not Found</h2>
-                            <p id="error-msg">We couldn't reach that address.</p>
-                            <button onclick="document.getElementById('error-overlay').style.display='none'">Try Again</button>
-                        </div>
-                    </div>
+                <div id="settings" class="glass">
+                    <h3 style="margin:0 0 10px 0">Settings</h3>
+                    <label><input type="checkbox" id="dark" ${settings.darkMode ? 'checked' : ''}> Dark Mode</label><br>
+                    <label><input type="checkbox" id="liquid" ${settings.liquidGlass ? 'checked' : ''}> Liquid Glass</label><br><br>
+                    <label>Proxy Server URL:</label><br>
+                    <input type="text" id="proxy" value="${settings.proxy}" placeholder="http://localhost:3000" style="width:90%"><br><br>
+                    <label>Button Color:</label>
+                    <input type="color" id="color" value="${settings.btnColor}"><br><br>
+                    <button onclick="save()" style="width:100%">Save & Apply</button>
                 </div>
+
+                <iframe id="view" src="about:blank"></iframe>
+                <div class="footer" id="status">Ready</div>
 
                 <script>
                     const vscode = acquireVsCodeApi();
-                    const input = document.getElementById('urlInput');
-                    const btn = document.getElementById('goBtn');
-                    const frame = document.getElementById('browserFrame');
-                    const errorOverlay = document.getElementById('error-overlay');
-                    const errorMsg = document.getElementById('error-msg');
+                    const frame = document.getElementById('view');
+                    const status = document.getElementById('status');
+                    const proxyUrl = "${settings.proxy}";
 
-                    const proxyList = ['google.com', 'github.com', 'youtube.com', 'stackoverflow.com'];
-
-                    function navigate() {
-                        let url = input.value.trim();
-                        if (!url) return;
-                        if (!url.startsWith('http')) url = 'https://' + url;
-
-                        errorOverlay.style.display = 'none';
-                        const needsProxy = proxyList.some(d => url.includes(d));
-
-                        if (needsProxy) {
-                            vscode.postMessage({ type: 'requestProxy', url: url });
-                        } else {
-                            frame.src = url;
-                        }
+                    function toggleSettings() {
+                        const s = document.getElementById('settings');
+                        s.style.display = s.style.display === 'block' ? 'none' : 'block';
                     }
 
-                    // ENTER KEY LOGIC
-                    input.addEventListener('keypress', (e) => {
-                        if (e.key === 'Enter') navigate();
-                    });
+                    function save() {
+                        vscode.postMessage({
+                            type: 'saveSettings',
+                            value: {
+                                darkMode: document.getElementById('dark').checked,
+                                liquidGlass: document.getElementById('liquid').checked,
+                                proxy: document.getElementById('proxy').value,
+                                btnColor: document.getElementById('color').value
+                            }
+                        });
+                    }
 
-                    btn.addEventListener('click', navigate);
+                    function go() {
+                        let val = document.getElementById('url').value;
+                        if(!val) return;
+                        if(!val.startsWith('http')) val = 'https://' + val;
+                        
+                        status.innerText = "Connecting...";
+                        frame.src = val;
 
-                    window.addEventListener('message', e => {
-                        if (e.data.type === 'renderProxy') {
-                            frame.srcdoc = e.data.html;
-                        } else if (e.data.type === 'proxyError') {
-                            errorMsg.innerText = "The website '" + e.data.url + "' could not be reached or does not exist.";
-                            errorOverlay.style.display = 'flex';
-                        }
-                    });
+                        setTimeout(() => {
+                            try {
+                                if(frame.contentWindow.location.href === "about:blank") throw "err";
+                            } catch(e) {
+                                if(proxyUrl) {
+                                    status.innerText = "Rendering thru proxy server";
+                                    frame.src = \`\${proxyUrl}/proxy?url=\${encodeURIComponent(val)}\`;
+                                } else {
+                                    status.innerText = "No proxy enabled. Unable to render site";
+                                    frame.srcdoc = "<div style='background:#111; color:white; height:100%; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>Blocked. Please enable proxy server.</div>";
+                                }
+                            }
+                        }, 2000);
+                    }
+
+                    frame.onload = () => {
+                        if(status.innerText === "Connecting...") status.innerText = "Direct connection successful";
+                    };
                 </script>
             </body>
-            </html>`;
+            </html>
+        `;
     }
 }
