@@ -1,8 +1,8 @@
 {
   "name": "website-integration",
-  "displayName": "Liquid Glass Web Browser",
+  "displayName": "website integration for vscode",
   "description": "A modern glassmorphism browser inside your VS Code sidebar with proxy bypass.",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "publisher": "Lunar-Bytes",
   "engines": {
     "vscode": "^1.80.0"
